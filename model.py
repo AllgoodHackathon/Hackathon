@@ -30,7 +30,7 @@ class ACSystem:
 
     def Econsumption(self, roomTemperature, targetTemperature, settingTemperature):
         # Calculate energy consumption
-        t = self.c * np.log((roomTemperature - settingTemperature) / max(0.0000001, (targetTemperature - settingTemperature)))
+        t = self.c * np.log((roomTemperature - settingTemperature) / max(0.0000001, (targetTemperature - settingTemperature + 1)))
         e = self.c * abs(roomTemperature - targetTemperature) / self.eta * (1 - np.exp(-self.k / self.c * t))
         return t, e
 
@@ -142,7 +142,13 @@ ac_system = ACSystem()
 # Training
 ac_system.train_ac_system()
 # Testing
-print(ac_system.q_table)
+with open("data.json", 'w') as json_file:
+    q_table_str_keys = {str(key): value for key, value in ac_system.q_table.items()}
+    for outer_key, inner_dict in ac_system.q_table.items():
+        for inner_key in inner_dict:
+            ac_system.q_table[outer_key][inner_key] /= -3600
+
+    json.dump(q_table_str_keys, json_file)
 for _ in range(10):
     testRoomTemperature = np.random.randint(28, 40)
     testTrgetTemperature = np.random.randint(16, min(testRoomTemperature, 29))
