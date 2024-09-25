@@ -23,21 +23,25 @@ class ACSystem:
             self.weights = {
                 'room_weight': 0.01,
                 'target_weight': 0.01,
+                'k': 0.01,
+                'eta': 0.01,
+                'c': 0.01
             }
 
     def Econsumption(self, roomTemperature, targetTemperature, settingTemperature):
         # Calculate energy consumption
         t = self.c * np.log((roomTemperature - settingTemperature) / max(0.0000001, (targetTemperature - settingTemperature)))
-        E = self.c * abs(roomTemperature - targetTemperature) / self.eta * (1 - np.exp(-self.k / self.c * t))
-        return E
+        e = self.c * abs(roomTemperature - targetTemperature) / self.eta * (1 - np.exp(-self.k / self.c * t))
+        return t, e
 
     def feature_extraction(self, roomTemperature, targetTemperature):
         # Calculate feature value based on current weights
         # features = (self.weights['room_weight'] * roomTemperature +
-        #             self.weights['target_weight'] * targetTemperature +
-        #             self.weights['time_weight'] * t)
-        features = (self.weights['room_weight'] * roomTemperature +
-                    self.weights['target_weight'] * targetTemperature)
+        #             self.weights['target_weight'] * targetTemperature + 
+        #             self.weights['k'] * self.k + 
+        #             self.weights['eta'] * self.eta + 
+        #             self.weights['c'] * self.c)
+        features = (roomTemperature, targetTemperature)
         return features
 
     def choose_action(self, roomTemperature, targetTemperature):
@@ -62,9 +66,9 @@ class ACSystem:
             settingTemperature = action
 
             # Calculate energy consumption (e)
-            e = self.Econsumption(roomTemperature, targetTemperature, settingTemperature)
+            t, e = self.Econsumption(roomTemperature, targetTemperature, settingTemperature)
             # Use the negative of e as the reward
-            reward = -e  # Smaller e results in higher reward
+            reward = -t  # Smaller t results in higher reward
 
             # Get the current state features
             current_state = self.feature_extraction(roomTemperature, targetTemperature)
@@ -93,28 +97,31 @@ class ACSystem:
 
         # After training, find and print the best setting temperature
         optimal_setting_temperature = self.choose_action(roomTemperature, targetTemperature)
-        t = self.c * np.log((roomTemperature - settingTemperature) / max(0.0000001, (targetTemperature - settingTemperature))) / 3600
-        print(f"Optimal setting temperature for room {roomTemperature}°C, target {targetTemperature}°C, and time {t:.1f} hrs: {optimal_setting_temperature}")
+        e, t = self.Econsumption(roomTemperature, targetTemperature, settingTemperature)
+        t /= 3600
+        print(f"Optimal setting temperature for room {roomTemperature}°C, target {targetTemperature}°C, and time {t:.1f} hrs: {optimal_setting_temperature}, energy consumption: {e}.")
 
     def update_weights_with_delta(self, delta, roomTemperature, targetTemperature):
         # Update weights based on the delta value
         self.weights['room_weight'] += self.alpha * delta * roomTemperature
         self.weights['target_weight'] += self.alpha * delta * targetTemperature
+        self.weights['k'] += self.alpha * delta * self.k
+        self.weights['eta'] += self.alpha * delta * self.eta 
+        self.weights['c'] += self.alpha * delta * self.c
         # self.weights['time_weight'] += self.alpha * delta * t
         # Normalize weights to ensure they sum up to 1
-        total_weight = self.weights['room_weight'] + self.weights['target_weight']
+        total_weight = sum(self.weights.values())
 
         # Avoid division by zero
         if total_weight != 0:
-            self.weights['room_weight'] /= total_weight
-            self.weights['target_weight'] /= total_weight
-            # self.weights['time_weight'] /= total_weight
+            for key in self.weights:
+                self.weights[key] /= total_weight
 
     def save_weights(self, filename):
         with open(filename, 'w') as json_file:
             json.dump(self.weights, json_file)
 
-    def train_ac_system(self, episodes=100):
+    def train_ac_system(self, episodes=1000):
     # Enumerate all possible combinations of roomTemperature, targetTemperature, and t
         for roomTemperature in range(28, 40):  # Room temperature from 28 to 35°C
             for targetTemperature in range(16, min(roomTemperature, 29)):  # Target temperature must be < room temperature and between 16-28°C
@@ -124,15 +131,18 @@ class ACSystem:
                 self.save_weights("weights.json")
     def predict(self, roomTemperature, targetTemperature):
         # Predict the best settingTemperature based on the trained weights
-        settingTemperature = self.choose_action(roomTemperature, targetTemperature)
-        e = self.Econsumption(roomTemperature, targetTemperature, settingTemperature)
-        t = self.c * np.log((roomTemperature - settingTemperature) / max(0.0000001, (targetTemperature - settingTemperature))) / 3600
+        features = self.feature_extraction(roomTemperature, targetTemperature)
+        valid_actions = [action for action in self.q_table[features] if action <= targetTemperature]
+        settingTemperature = max(valid_actions, key=self.q_table[features].get)
+        e, t = self.Econsumption(roomTemperature, targetTemperature, settingTemperature)
+        t /= 3600
         return e, t, settingTemperature
 
 ac_system = ACSystem() 
 # Training
 ac_system.train_ac_system()
 # Testing
+print(ac_system.q_table)
 for _ in range(10):
     testRoomTemperature = np.random.randint(28, 40)
     testTrgetTemperature = np.random.randint(16, min(testRoomTemperature, 29))
